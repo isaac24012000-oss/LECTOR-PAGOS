@@ -288,6 +288,12 @@ if archivos_cargados:
                 
                 monto_total = calcular_monto_total_planilla(texto)
                 
+                # DEBUG: Mostrar valores extraídos
+                with st.expander(f"🔍 Debug - {archivo.name}", expanded=False):
+                    st.write(f"**RUC:** {ruc_val}")
+                    st.write(f"**PERÍODO (limpio):** {periodo_val}")
+                    st.write(f"**MONTO:** {monto_total}")
+                
                 datos_base = {
                     "Archivo": archivo.name,
                     "RUC": ruc_val,
