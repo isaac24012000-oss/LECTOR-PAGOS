@@ -12,6 +12,22 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
+# Importar validador de base local
+try:
+    from utils.validador_base_local import cargar_bases_locales, buscar_en_base
+except ImportError:
+    cargar_bases_locales = None
+    buscar_en_base = None
+
+
+# Caché para las bases locales
+@st.cache_resource
+def obtener_bases_locales():
+    """Carga las bases locales una sola vez"""
+    if cargar_bases_locales:
+        return cargar_bases_locales()
+    return {}
+
 
 def generar_excel_local(df):
     """Genera archivo Excel localmente (función respaldo)"""
@@ -139,24 +155,48 @@ def extraer_campo(texto, patron):
         return "No detectado"
 
 
-def calcular_monto_total(texto):
-    """Calcula el MONTO total sumando Fondo Pensiones + Retenciones y Retribuciones"""
+def extraer_afiliados(texto):
+    """
+    Extrae TODOS los afiliados de la tabla en el PDF
+    Retorna lista de diccionarios con datos de cada afiliado
+    """
     try:
-        # Extraer Total Fondo Pensiones (solo el número después de saltos de línea)
+        # Patrón para encontrar filas de afiliados en la tabla
+        # Estructura: Nro | CUSPP | Nombre | Remuneración | ...
+        patron = r'^\s*(\d+)\s+([0-9]{6}[A-Z]{5}\d)\s+([A-Z\s,\.]+?)(?=\s+[SN]\s)'
+        
+        afiliados = []
+        lineas = texto.split('\n')
+        
+        for i, linea in enumerate(lineas):
+            match = re.match(patron, linea.strip())
+            if match:
+                afiliados.append({
+                    'nro': match.group(1).strip(),
+                    'cussp': match.group(2).strip(),
+                    'nombre': match.group(3).strip()
+                })
+        
+        return afiliados if afiliados else []
+    except:
+        return []
+
+
+def calcular_monto_total_planilla(texto):
+    """
+    Calcula el MONTO TOTAL de la planilla (suma de todos los afiliados)
+    Retorna string formateado en soles
+    """
+    try:
         monto_fondo = extraer_campo(texto, r'Total\s+Fondo\s+Pensiones[\s\n]+S/\.[\s\n]+([\d.]+)')
         
-        # Extraer Total Retenciones y Retribuciones (último match, que es el Total, no Sub-total)
-        import re
         matches = re.findall(r'Retenciones(?:\s+y)?\s+Retribuciones[\s\n]+S/\.[\s\n]+([\d.]+)', texto, re.IGNORECASE | re.MULTILINE | re.DOTALL)
-        monto_retenciones = matches[-1] if matches else "No detectado"  # Tomar el último match
+        monto_retenciones = matches[-1] if matches else "No detectado"
         
-        # Procesar valores
         def limpiar_monto(monto_str):
-            """Convierte '215.70' a float 215.70"""
             if monto_str == "No detectado" or not monto_str:
                 return 0.0
             try:
-                # Remover espacios y convertir directamente
                 monto_limpio = monto_str.replace(' ', '').replace('\n', '').strip()
                 return float(monto_limpio)
             except:
@@ -165,7 +205,6 @@ def calcular_monto_total(texto):
         valor_fondo = limpiar_monto(monto_fondo)
         valor_retenciones = limpiar_monto(monto_retenciones)
         
-        # Sumar y formatear
         total = valor_fondo + valor_retenciones
         if total > 0:
             return f"S/. {total:.2f}"
@@ -173,6 +212,7 @@ def calcular_monto_total(texto):
         return "No detectado"
     except:
         return "No detectado"
+
 
 
 # Configurar página
@@ -199,10 +239,10 @@ campos_a_mostrar = st.sidebar.multiselect(
     "Selecciona los campos que deseas ver:",
     [
         "RUC", "RAZON_SOCIAL", "PERIODO", "CUSSP", "AFILIADO",
-        "FECHA_PAGO", "N_PLANILLA", "MONTO"
+        "FECHA_PAGO", "N_PLANILLA", "MONTO", "OBSERVACION"
     ],
     default=["RUC", "RAZON_SOCIAL", "PERIODO", "CUSSP", "AFILIADO",
-             "FECHA_PAGO", "N_PLANILLA", "MONTO"]
+             "FECHA_PAGO", "N_PLANILLA", "MONTO", "OBSERVACION"]
 )
 
 # Área principal
@@ -242,28 +282,106 @@ if archivos_cargados:
             if texto and len(texto.strip()) > 50:
                 st.success(f"✅ Texto extraído de {archivo.name}")
                 
-                # Extraer datos con regex mejorado
-                # Extraer CUSSP: busca en la tabla de afiliados después de la columna "Nro"
-                cussp_value = extraer_campo(texto, r'^\s*1\s+([0-9]{6}[A-Z]{5}\d)') or \
-                              extraer_campo(texto, r'CUSPP[\s\S]*?(\d{6}[A-Z]{5}\d)')
+                # Extraer datos generales de la planilla
+                ruc_val = extraer_campo(texto, r'RUC[:\s]+(\d{11})')
+                periodo_val = limpiar_periodo(extraer_campo(texto, r'Periodo\s+(?:de\s+Devengue)?[:\s]+(\d{4}-\d{2})'))
                 
-                # Extraer nombre del afiliado (viene después del CUSPP en la tabla)
-                afiliado_name = extraer_campo(texto, r'[0-9]{6}[A-Z]{5}\d\s+([A-Z\s,\.]+?)(?=\s+S\s|\s+N\s)') or \
-                                extraer_campo(texto, r'Nro\.?\s+de\s+Afiliados?\s+Declarados[:\s]*\n?\s*(\d+)')
+                monto_total = calcular_monto_total_planilla(texto)
                 
-                datos = {
+                datos_base = {
                     "Archivo": archivo.name,
-                    "RUC": extraer_campo(texto, r'RUC[:\s]+(\d{11})'),
+                    "RUC": ruc_val,
                     "RAZON_SOCIAL": extraer_campo(texto, r'(?:Nombre\s+o\s+)?Razón\s+Social[:\s]+([^\n]+?)(?:\s*RUC|$)'),
-                    "PERIODO": limpiar_periodo(extraer_campo(texto, r'Periodo\s+(?:de\s+Devengue)?[:\s]+(\d{4}-\d{2})')),
-                    "CUSSP": cussp_value,
-                    "AFILIADO": afiliado_name,
+                    "PERIODO": periodo_val,
                     "FECHA_PAGO": extraer_campo(texto, r'Fecha\s+de\s+Pago[:\s]*\n?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{4})'),
                     "N_PLANILLA": extraer_campo(texto, r'(?:Número\s+de\s+)?Planilla[:\s]+(\d+)'),
-                    "MONTO": calcular_monto_total(texto)  # Suma de Fondo Pensiones + Retenciones
+                    "MONTO": monto_total,  # MONTO TOTAL COMPARTIDO ENTRE AFILIADOS
+                    "OBSERVACION": ""
                 }
                 
-                datos_extraidos.append(datos)
+                # Cargar bases locales para validación (solo como fallback)
+                bases_locales = obtener_bases_locales() if buscar_en_base else None
+                
+                # Extraer TODOS los afiliados del PDF
+                afiliados = extraer_afiliados(texto)
+                
+                if afiliados:
+                    # Caso 1: Se encontraron afiliados en el PDF
+                    # Crear una fila por cada afiliado con MONTO compartido (sin validación)
+                    st.info(f"✅ Se encontraron {len(afiliados)} afiliado(s) en {archivo.name}")
+                    
+                    for idx, afiliado in enumerate(afiliados):
+                        fila = datos_base.copy()
+                        fila["CUSSP"] = afiliado['cussp']
+                        fila["AFILIADO"] = afiliado['nombre']
+                        # OBSERVACION vacío porque se encontraron datos en el PDF
+                        fila["OBSERVACION"] = ""
+                        # MONTO solo en la primera fila
+                        if idx > 0:
+                            fila["MONTO"] = ""
+                        datos_extraidos.append(fila)
+                else:
+                    # Caso 2: No se encontró tabla de afiliados
+                    # Intentar extraer CUSSP y AFILIADO del PDF
+                    cussp_value = extraer_campo(texto, r'^\s*1\s+([0-9]{6}[A-Z]{5}\d)') or \
+                                  extraer_campo(texto, r'CUSPP[\s\S]*?(\d{6}[A-Z]{5}\d)')
+                    afiliado_name = extraer_campo(texto, r'[0-9]{6}[A-Z]{5}\d\s+([A-Z\s,\.]+?)(?=\s+S\s|\s+N\s)')
+                    
+                    if cussp_value != "No detectado" and afiliado_name != "No detectado":
+                        # Caso 2a: CUSSP y AFILIADO encontrados en el PDF
+                        datos_base["CUSSP"] = cussp_value
+                        datos_base["AFILIADO"] = afiliado_name
+                        datos_base["OBSERVACION"] = ""
+                        datos_extraidos.append(datos_base)
+                        st.info(f"✅ Se extrajo 1 afiliado de {archivo.name}")
+                    else:
+                        # Caso 2b: NO se encontraron CUSSP y AFILIADO en el PDF
+                        # FALLBACK: Buscar en la base local
+                        if bases_locales:
+                            try:
+                                # Buscar todos los registros que coincidan con DOCUMENTO y PERIODO
+                                validacion = buscar_en_base(
+                                    ruc=ruc_val,
+                                    documento=ruc_val,
+                                    periodo=periodo_val,
+                                    cussp="",
+                                    afiliado_pdf="",
+                                    bases=bases_locales
+                                )
+                                
+                                if validacion['encontrado'] and validacion.get('afiliados'):
+                                    # Se encontraron múltiples afiliados en la base local
+                                    # Crear una fila por cada afiliado con MONTO compartido
+                                    for idx, aff in enumerate(validacion['afiliados']):
+                                        fila = datos_base.copy()
+                                        fila["CUSSP"] = aff['cussp']
+                                        fila["AFILIADO"] = aff['afiliado']
+                                        fila["OBSERVACION"] = aff['observacion']
+                                        # MONTO solo en la primera fila
+                                        if idx > 0:
+                                            fila["MONTO"] = ""
+                                        datos_extraidos.append(fila)
+                                    st.info(f"✅ Se obtuvieron {len(validacion['afiliados'])} afiliado(s) de la base local para {archivo.name}")
+                                else:
+                                    # No se encontró en bases
+                                    datos_base["CUSSP"] = "No detectado"
+                                    datos_base["AFILIADO"] = "No detectado"
+                                    datos_base["OBSERVACION"] = "No se encontró en PDF ni en bases locales"
+                                    datos_extraidos.append(datos_base)
+                                    st.warning(f"⚠️ No se pudieron extraer datos de {archivo.name}")
+                            except Exception as e:
+                                datos_base["CUSSP"] = "No detectado"
+                                datos_base["AFILIADO"] = "No detectado"
+                                datos_base["OBSERVACION"] = f"Error consultando bases: {str(e)}"
+                                datos_extraidos.append(datos_base)
+                                st.warning(f"⚠️ Error al buscar en bases para {archivo.name}")
+                        else:
+                            # Sin bases locales disponibles
+                            datos_base["CUSSP"] = "No detectado"
+                            datos_base["AFILIADO"] = "No detectado"
+                            datos_base["OBSERVACION"] = "No se encontró en PDF y bases locales no disponibles"
+                            datos_extraidos.append(datos_base)
+                            st.warning(f"⚠️ No se encontraron datos en {archivo.name}")
             else:
                 st.warning(f"⚠️ No se extrajo texto de {archivo.name}")
         
@@ -273,7 +391,7 @@ if archivos_cargados:
     # Mostrar resultados
     if datos_extraidos:
         st.markdown("---")
-        st.success(f"✅ Se procesaron {len(datos_extraidos)} archivo(s)")
+        st.success(f"✅ Se procesaron {len(datos_extraidos)} fila(s) en total")
         
         # DataFrame
         df = pd.DataFrame(datos_extraidos)
