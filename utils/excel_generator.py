@@ -23,19 +23,30 @@ def generar_excel(df):
         ws = wb.active
         ws.title = "Datos"
         
+        # Reordenar columnas según el orden deseado
+        orden_columnas = [
+            'RUC', 'RAZON_SOCIAL', 'PERIODO', 'CUSSP', 'AFILIADO',
+            'FECHA_PAGO', 'N_PLANILLA', 'MONTO', 'OBSERVACION'
+        ]
+        # Mantener solo las columnas que existan en el DataFrame
+        columnas_existentes = [col for col in orden_columnas if col in df.columns]
+        # Agregar columnas restantes (como Archivo)
+        columnas_restantes = [col for col in df.columns if col not in columnas_existentes]
+        df_ordenado = df[columnas_existentes + columnas_restantes]
+        
+        # Calcular el rango de columnas para el merge dinámicamente
+        num_cols = len(df_ordenado.columns)
+        col_letra_fin = chr(64 + num_cols) if num_cols < 27 else 'A' + chr(64 + num_cols - 26)
+        rango_merge = f'A1:{col_letra_fin}1'
+        
         # Título principal
-        ws.merge_cells('A1:I1')
+        ws.merge_cells(rango_merge)
         titulo = ws['A1']
         titulo.value = "PLANTILLA PAGOS REDIRECCIONAMIENTO"
         titulo.font = Font(bold=True, size=14, color="FFFFFF")
         titulo.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
         titulo.alignment = Alignment(horizontal="center", vertical="center")
         ws.row_dimensions[1].height = 25
-        
-        # Reordenar columnas: RAZON_SOCIAL primero
-        columnas_orden = ['Archivo', 'RAZON_SOCIAL']
-        columnas_restantes = [col for col in df.columns if col not in columnas_orden]
-        df_ordenado = df[columnas_orden + columnas_restantes] if 'RAZON_SOCIAL' in df.columns else df
         
         # Encabezados (fila 2)
         for col_idx, column_title in enumerate(df_ordenado.columns, 1):
