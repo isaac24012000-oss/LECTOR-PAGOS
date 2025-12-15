@@ -290,9 +290,18 @@ if archivos_cargados:
                 
                 # DEBUG: Mostrar valores extraídos
                 with st.expander(f"🔍 Debug - {archivo.name}", expanded=False):
-                    st.write(f"**RUC:** {ruc_val}")
+                    st.write(f"**RUC extraído:** {ruc_val}")
                     st.write(f"**PERÍODO (limpio):** {periodo_val}")
                     st.write(f"**MONTO:** {monto_total}")
+                    
+                    # Extraer AFILIADOS para debug
+                    afiliados_debug = extraer_afiliados(texto)
+                    st.write(f"**Afiliados encontrados en PDF:** {len(afiliados_debug)}")
+                    if afiliados_debug:
+                        for aff in afiliados_debug:
+                            st.write(f"  - {aff['nombre']} ({aff['cussp']})")
+                    else:
+                        st.write("❌ No se encontraron afiliados en tabla")
                 
                 datos_base = {
                     "Archivo": archivo.name,
