@@ -185,7 +185,7 @@ def extraer_afiliados(texto):
 def calcular_monto_total_planilla(texto):
     """
     Calcula el MONTO TOTAL de la planilla (suma de todos los afiliados)
-    Retorna string formateado en soles
+    Retorna número float (el formato de moneda se aplica en Excel)
     """
     try:
         monto_fondo = extraer_campo(texto, r'Total\s+Fondo\s+Pensiones[\s\n]+S/\.[\s\n]+([\d.]+)')
@@ -207,11 +207,11 @@ def calcular_monto_total_planilla(texto):
         
         total = valor_fondo + valor_retenciones
         if total > 0:
-            return f"S/. {total:.2f}"
+            return total  # Retorna número float en lugar de string
         
-        return "No detectado"
+        return 0.0  # Retorna 0.0 en lugar de string
     except:
-        return "No detectado"
+        return 0.0
 
 
 

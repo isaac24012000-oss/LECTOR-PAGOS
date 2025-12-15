@@ -57,11 +57,22 @@ def generar_excel(df):
             cell.alignment = Alignment(horizontal="center", vertical="center")
         
         # Datos (a partir de fila 3)
+        # Encontrar índice de columna MONTO para aplicar formato de moneda
+        monto_col_idx = None
+        for col_idx, col_name in enumerate(df_ordenado.columns, 1):
+            if col_name == 'MONTO':
+                monto_col_idx = col_idx
+                break
+        
         for r_idx, row in enumerate(df_ordenado.values, 3):
             for c_idx, value in enumerate(row, 1):
                 cell = ws.cell(row=r_idx, column=c_idx)
                 cell.value = value
                 cell.alignment = Alignment(horizontal="left", vertical="center")
+                
+                # Aplicar formato de moneda a la columna MONTO
+                if c_idx == monto_col_idx and isinstance(value, (int, float)) and value > 0:
+                    cell.number_format = '_("S/. "* #,##0.00_);_("S/. "* (#,##0.00);_("S/. "* "-"??_);_(@_)'
         
         # Ajustar ancho de columnas (evitar celdas mergeadas)
         for col_idx in range(1, len(df_ordenado.columns) + 1):
