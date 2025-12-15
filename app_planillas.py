@@ -331,9 +331,9 @@ if archivos_cargados:
                         fila["AFILIADO"] = afiliado['nombre']
                         # OBSERVACION vacío porque se encontraron datos en el PDF
                         fila["OBSERVACION"] = ""
-                        # MONTO solo en la primera fila
+                        # MONTO solo en la primera fila, vacío (0.0) en las demás
                         if idx > 0:
-                            fila["MONTO"] = ""
+                            fila["MONTO"] = 0.0
                         datos_extraidos.append(fila)
                 else:
                     # Caso 2: No se encontró tabla de afiliados
@@ -374,7 +374,7 @@ if archivos_cargados:
                                         fila["OBSERVACION"] = aff['observacion']
                                         # MONTO solo en la primera fila
                                         if idx > 0:
-                                            fila["MONTO"] = ""
+                                            fila["MONTO"] = 0.0
                                         datos_extraidos.append(fila)
                                     st.info(f"✅ Se obtuvieron {len(validacion['afiliados'])} afiliado(s) de la base local para {archivo.name}")
                                 else:
@@ -415,9 +415,9 @@ if archivos_cargados:
         st.markdown("### 📋 Datos Extraídos")
         if campos_a_mostrar:
             cols_mostrar = ["Archivo"] + [c for c in campos_a_mostrar if c in df.columns]
-            st.dataframe(df[cols_mostrar], use_container_width=True)
+            st.dataframe(df[cols_mostrar])
         else:
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df)
         
         # Descargar Excel
         try:
